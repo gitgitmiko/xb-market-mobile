@@ -6,6 +6,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -23,7 +27,12 @@ data class Deal(
     val discountPercent: Int,
     /** Format "MM/dd/yyyy HH:mm:ss" UTC, seperti dari server. */
     val endDateUtc: String?,
-)
+    val inGamePass: Boolean = false,
+    /** ISO 8601, untuk urutan Terbaru. */
+    val releaseDate: String? = null,
+) {
+    val isGame: Boolean get() = kind == null || kind == "Game"
+}
 
 data class DealsPage(val deals: List<Deal>, val continuation: String?)
 
@@ -60,6 +69,8 @@ class XboxDeals(private val client: OkHttpClient = Http.client) {
         val productId: String,
         val title: String = "",
         val productKind: String? = null,
+        val releaseDate: String? = null,
+        val includedWithPassesProductIds: List<String> = emptyList(),
         val images: Images? = null,
         val specificPrices: SpecificPrices? = null,
     )
@@ -86,10 +97,16 @@ class XboxDeals(private val client: OkHttpClient = Http.client) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false }
     private val cv = AtomicInteger(0)
 
-    /** Satu halaman (±25 produk). [continuation] null = halaman pertama; hasil `continuation` null = habis. */
-    suspend fun page(region: Region, continuation: String? = null): DealsPage = withContext(Dispatchers.IO) {
+    /**
+     * Satu halaman (±25 produk). [continuation] null = halaman pertama; hasil `continuation` null = habis.
+     * Platform dan genre dari [filters] disaring server; [DealFilters.minDiscount] menghentikan paging lebih awal.
+     */
+    suspend fun page(region: Region, filters: DealFilters = DealFilters(), continuation: String? = null): DealsPage =
+        withContext(Dispatchers.IO) {
+        val encoded = encodeFilters(filters)
+        val minDiscount = filters.minDiscount.coerceAtLeast(1)
         val body = json.encodeToString(
-            BrowseRequest(Filters = FILTERS, EncodedFilters = FILTERS, EncodedCT = continuation),
+            BrowseRequest(Filters = encoded, EncodedFilters = encoded, EncodedCT = continuation),
         )
         val request = Request.Builder()
             .url("https://emerald.xboxservices.com/xboxcomfd/browse?locale=en-${region.market}")
@@ -106,7 +123,7 @@ class XboxDeals(private val client: OkHttpClient = Http.client) {
             s to p
         }
         val deals = all.mapNotNull { (s, p) ->
-            if (p == null || p.currency.isEmpty() || p.listPrice >= p.msrp || p.discountPercentage < 1) return@mapNotNull null
+            if (p == null || p.currency.isEmpty() || p.listPrice >= p.msrp || p.discountPercentage < minDiscount) return@mapNotNull null
             Deal(
                 id = s.productId,
                 title = s.title,
@@ -117,19 +134,30 @@ class XboxDeals(private val client: OkHttpClient = Http.client) {
                 msrp = p.msrp,
                 discountPercent = p.discountPercentage.toInt(),
                 endDateUtc = p.endDateUtc,
+                inGamePass = s.includedWithPassesProductIds.isNotEmpty(),
+                releaseDate = s.releaseDate,
             )
         }
-        // Urutan diskon menurun: satu produk tanpa diskon berarti sisa halaman juga tanpa diskon.
-        val reachedEnd = all.isEmpty() || all.any { (_, p) -> p != null && p.discountPercentage < 1 }
+        // Urutan diskon menurun: satu produk di bawah batas berarti sisa halaman juga di bawah batas.
+        val reachedEnd = all.isEmpty() || all.any { (_, p) -> p != null && p.discountPercentage < minDiscount }
         DealsPage(deals, response.channels[CHANNEL]?.encodedCT?.takeUnless { reachedEnd })
+    }
+
+    private fun encodeFilters(filters: DealFilters): String {
+        fun choices(id: String, values: Collection<String>) = buildJsonObject {
+            put("id", id)
+            putJsonArray("choices") { values.forEach { v -> add(buildJsonObject { put("id", v) }) } }
+        }
+        val obj = buildJsonObject {
+            put("orderby", choices("orderby", listOf("DiscountPercentage desc")))
+            put("Price", choices("Price", listOf("OnSale")))
+            if (filters.platforms.isNotEmpty()) put("PlayWith", choices("PlayWith", filters.platforms))
+            if (filters.genres.isNotEmpty()) put("Genre", choices("Genre", filters.genres))
+        }
+        return Base64.encodeToString(obj.toString().toByteArray(), Base64.NO_WRAP)
     }
 
     private companion object {
         const val CHANNEL = "DEALS"
-        val FILTERS: String = Base64.encodeToString(
-            """{"orderby":{"id":"orderby","choices":[{"id":"DiscountPercentage desc"}]},"Price":{"id":"Price","choices":[{"id":"OnSale"}]}}"""
-                .toByteArray(),
-            Base64.NO_WRAP,
-        )
     }
 }

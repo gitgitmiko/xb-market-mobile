@@ -43,6 +43,14 @@ object Prefs {
         prefs().edit().putString("homeMarket", market).apply()
     }
 
+    fun dealFilters(): DealFilters = prefs().getString("dealFilters", null)
+        ?.let { runCatching { json.decodeFromString<DealFilters>(it) }.getOrNull() }
+        ?: DealFilters()
+
+    fun setDealFilters(filters: DealFilters) {
+        prefs().edit().putString("dealFilters", json.encodeToString(filters)).apply()
+    }
+
     fun setPriceAlerts(enabled: Boolean) {
         _priceAlerts.value = enabled
         prefs().edit().putBoolean("priceAlerts", enabled).apply()

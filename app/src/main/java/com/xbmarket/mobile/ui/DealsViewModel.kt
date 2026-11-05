@@ -3,6 +3,7 @@ package com.xbmarket.mobile.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.xbmarket.mobile.data.Deal
+import com.xbmarket.mobile.data.DealFilters
 import com.xbmarket.mobile.data.FxRates
 import com.xbmarket.mobile.data.Prefs
 import com.xbmarket.mobile.data.Regions
@@ -17,7 +18,7 @@ import kotlinx.coroutines.launch
 data class DealsState(
     val market: String,
     val deals: List<Deal> = emptyList(),
-    val gamesOnly: Boolean = true,
+    val filters: DealFilters = DealFilters(),
     val loading: Boolean = false,
     val loadingMore: Boolean = false,
     val error: String? = null,
@@ -26,15 +27,34 @@ data class DealsState(
     val base: String = "IDR",
     val convert: ((Double, String) -> Double?)? = null,
 ) {
+    /** Hasil setelah filter sisi aplikasi dan urutan. Platform/genre/diskon minimal sudah disaring server. */
     val visible: List<Deal>
-        get() = if (gamesOnly) deals.filter { it.kind == null || it.kind == "Game" } else deals
+        get() {
+            val f = filters
+            val list = deals.filter { d ->
+                when (f.kind) {
+                    DealFilters.Kind.All -> true
+                    DealFilters.Kind.Game -> d.isGame
+                    DealFilters.Kind.AddOn -> !d.isGame
+                } &&
+                    !(f.hideGamePass && d.inGamePass) &&
+                    (f.maxPrice == null || (convert?.invoke(d.price, d.currency) ?: 0.0) <= f.maxPrice)
+            }
+            return when (f.sort) {
+                DealFilters.Sort.Discount -> list
+                DealFilters.Sort.PriceAsc -> list.sortedBy { convert?.invoke(it.price, it.currency) ?: it.price }
+                DealFilters.Sort.Newest -> list.sortedByDescending { it.releaseDate.orEmpty() }
+            }
+        }
 }
 
 class DealsViewModel(
     private val source: XboxDeals = XboxDeals(),
     private val fx: FxRates = FxRates(),
 ) : ViewModel() {
-    private val _state = MutableStateFlow(DealsState(market = Prefs.homeMarket.value))
+    private val _state = MutableStateFlow(
+        DealsState(market = Prefs.homeMarket.value, filters = Prefs.dealFilters(), base = Prefs.baseCurrency.value),
+    )
     val state: StateFlow<DealsState> = _state.asStateFlow()
     private var job: Job? = null
     /** Naik setiap reload; hasil dari muatan lama diabaikan. */
@@ -45,7 +65,15 @@ class DealsViewModel(
         viewModelScope.launch {
             Prefs.baseCurrency.collect { base ->
                 val convert = runCatching { fx.converter(base) }.getOrNull()
-                _state.update { it.copy(base = base, convert = convert) }
+                _state.update { s ->
+                    // Batas harga tersimpan dalam mata uang dasar lama; tidak berlaku lagi setelah diganti.
+                    val filters = if (s.base != base && s.filters.maxPrice != null) {
+                        s.filters.copy(maxPrice = null).also(Prefs::setDealFilters)
+                    } else {
+                        s.filters
+                    }
+                    s.copy(base = base, convert = convert, filters = filters)
+                }
             }
         }
     }
@@ -55,17 +83,24 @@ class DealsViewModel(
         reload(market)
     }
 
-    fun setGamesOnly(value: Boolean) {
-        _state.value = _state.value.copy(gamesOnly = value)
-        // Daftar game saja bisa jadi pendek setelah disaring; isi ulang bila perlu.
-        if (value && _state.value.visible.size < MIN_VISIBLE) loadMore()
+    fun setFilters(filters: DealFilters) {
+        val old = _state.value.filters
+        Prefs.setDealFilters(filters)
+        if (filters.serverKey() != old.serverKey()) {
+            _state.update { it.copy(filters = filters) }
+            reload()
+        } else {
+            _state.update { it.copy(filters = filters) }
+            // Saringan di aplikasi bisa membuat daftar pendek; isi ulang bila perlu.
+            if (_state.value.visible.size < MIN_VISIBLE) loadMore()
+        }
     }
 
     fun reload(market: String = _state.value.market) {
         job?.cancel()
         generation++
         val s = _state.value
-        _state.value = DealsState(market = market, gamesOnly = s.gamesOnly, base = s.base, convert = s.convert, loading = true)
+        _state.value = DealsState(market = market, filters = s.filters, base = s.base, convert = s.convert, loading = true)
         job = viewModelScope.launch { fetch(first = true) }
     }
 
@@ -84,7 +119,7 @@ class DealsViewModel(
         try {
             var pages = 0
             do {
-                val page = source.page(region, _state.value.continuation)
+                val page = source.page(region, _state.value.filters, _state.value.continuation)
                 if (gen != generation) return
                 // update{} membaca state terbaru agar kurs yang datang di tengah jalan tidak tertimpa.
                 _state.update { s ->

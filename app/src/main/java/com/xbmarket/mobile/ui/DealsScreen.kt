@@ -19,10 +19,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -51,6 +54,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 import com.xbmarket.mobile.data.Deal
+import com.xbmarket.mobile.data.DealFilters
 import com.xbmarket.mobile.data.GameSummary
 import com.xbmarket.mobile.data.Region
 import com.xbmarket.mobile.data.Regions
@@ -65,12 +69,14 @@ fun DealsScreen(
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     var pickRegion by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var showSort by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val region = Regions.byMarket(state.market)
     val deals = state.visible
 
     // Muat halaman berikutnya saat mendekati akhir daftar.
-    LaunchedEffect(listState, deals.size) {
+    LaunchedEffect(listState, deals.size, state.deals.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
             .collect { last -> if (last >= listState.layoutInfo.totalItemsCount - 6) vm.loadMore() }
     }
@@ -86,11 +92,32 @@ fun DealsScreen(
                 label = { Text("${region?.flag.orEmpty()} ${region?.name ?: state.market}") },
                 trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
             )
+            val activeFilters = state.filters.activeCount
             FilterChip(
-                selected = state.gamesOnly,
-                onClick = { vm.setGamesOnly(!state.gamesOnly) },
-                label = { Text("Game saja") },
+                selected = activeFilters > 0,
+                onClick = { showFilters = true },
+                label = { Text(if (activeFilters > 0) "Filter ($activeFilters)" else "Filter") },
+                leadingIcon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null, modifier = Modifier.size(18.dp)) },
             )
+            Box {
+                AssistChip(
+                    onClick = { showSort = true },
+                    label = { Text(state.filters.sort.label) },
+                    trailingIcon = { Icon(Icons.Filled.ArrowDropDown, contentDescription = null) },
+                )
+                DropdownMenu(expanded = showSort, onDismissRequest = { showSort = false }) {
+                    DealFilters.Sort.entries.forEach { sort ->
+                        DropdownMenuItem(
+                            text = { Text(sort.label) },
+                            onClick = {
+                                vm.setFilters(state.filters.copy(sort = sort))
+                                showSort = false
+                                scope.launch { listState.scrollToItem(0) }
+                            },
+                        )
+                    }
+                }
+            }
             // Bandingkan diskon yang sudah dimuat (maks. ScanViewModel.MAX_GAMES teratas) di semua region.
             AssistChip(
                 onClick = { region?.let { r -> onScan(deals.map { GameSummary(it.id, it.title, it.image) }, r) } },
@@ -109,7 +136,9 @@ fun DealsScreen(
                         TextButton(onClick = vm::reload) { Text("Coba lagi") }
                     }
                 }
-                deals.isEmpty() && state.endReached -> Centered { Text("Tidak ada diskon di region ini") }
+                deals.isEmpty() && state.endReached -> Centered {
+                    Text(if (state.filters.activeCount > 0) "Tidak ada diskon yang cocok dengan filter" else "Tidak ada diskon di region ini")
+                }
                 else -> LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 16.dp)) {
                     items(deals, key = { it.id }) { deal ->
                         DealRow(deal, state.base, state.convert, onClick = { onOpen(GameSummary(deal.id, deal.title, deal.image)) })
@@ -119,6 +148,7 @@ fun DealsScreen(
                             when {
                                 state.loadingMore -> CircularProgressIndicator(Modifier.size(24.dp))
                                 state.error != null -> TextButton(onClick = vm::loadMore) { Text("Gagal memuat. Coba lagi") }
+                                !state.endReached && !state.loading -> TextButton(onClick = vm::loadMore) { Text("Muat lebih banyak") }
                                 state.endReached -> Text(
                                     "${deals.size} diskon",
                                     style = MaterialTheme.typography.bodySmall,
@@ -132,6 +162,19 @@ fun DealsScreen(
         }
     }
 
+    if (showFilters) {
+        DealFilterSheet(
+            initial = state.filters,
+            base = state.base,
+            convert = state.convert,
+            onApply = {
+                vm.setFilters(it)
+                showFilters = false
+                scope.launch { listState.scrollToItem(0) }
+            },
+            onDismiss = { showFilters = false },
+        )
+    }
     if (pickRegion) {
         Picker("Region", Regions.all, label = { "${it.flag} ${it.name}" }, onDismiss = { pickRegion = false }) {
             vm.selectMarket(it.market)
