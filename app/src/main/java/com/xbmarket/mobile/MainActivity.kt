@@ -7,12 +7,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xbmarket.mobile.data.GameSummary
 import com.xbmarket.mobile.data.Prefs
 import com.xbmarket.mobile.notify.PriceNotifications
 import com.xbmarket.mobile.notify.PriceWatchWorker
 import com.xbmarket.mobile.ui.XbMarketApp
 import com.xbmarket.mobile.ui.XbMarketTheme
+import com.xbmarket.mobile.update.UpdateDialog
 
 class MainActivity : ComponentActivity() {
     /** Game yang diminta dibuka dari notifikasi; dikosongkan setelah dibuka. */
@@ -26,6 +28,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             XbMarketTheme {
                 XbMarketApp(pendingGame = pendingGame, onPendingGameOpened = { pendingGame = null })
+                UpdateDialog(viewModel())
             }
         }
     }

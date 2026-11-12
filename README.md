@@ -31,6 +31,18 @@ Opsional: tanpa `app/google-services.json` aplikasi tetap bisa dibangun dan menu
 Data Firestore: `users/{uid}` (homeMarket, baseCurrency, priceAlerts), `users/{uid}/watchlist/{productId}`
 (title, image, addedAt; lastPrice/lastMarket ditulis server), `users/{uid}/tokens/{fcmToken}`.
 
+## Update OTA (GitHub Releases)
+
+Aplikasi mengecek `releases/latest` repo ini saat dibuka (paling sering tiap 6 jam) dan lewat Pengaturan → Cek pembaruan.
+Bila tag `v<versionName>` lebih baru dari versi terpasang, APK di rilis itu diunduh lalu dipasang lewat Package Installer.
+
+Merilis versi baru:
+1. Naikkan `versionCode` dan `versionName` di `app/build.gradle.kts`, commit, push.
+2. `GITHUB_TOKEN=... tools/release.sh "Catatan rilis"` (token dengan izin Contents read/write repo ini).
+
+APK rilis ditandatangani `xb-market-release.jks` lewat `keystore.properties` (keduanya tidak di-commit; simpan cadangannya).
+Update hanya bisa dipasang di atas APK yang ditandatangani kunci yang sama. Untuk login Google, tambahkan SHA-1 kunci ini ke app Firebase.
+
 ## Build
 
 `./gradlew :app:assembleDebug` (JDK 17, Android SDK 36).

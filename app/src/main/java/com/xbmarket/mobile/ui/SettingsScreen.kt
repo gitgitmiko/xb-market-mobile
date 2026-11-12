@@ -40,7 +40,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xbmarket.mobile.BuildConfig
 import com.xbmarket.mobile.data.Account
+import com.xbmarket.mobile.update.UpdateState
+import com.xbmarket.mobile.update.UpdateViewModel
 import com.xbmarket.mobile.data.Prefs
 import com.xbmarket.mobile.data.Regions
 import com.xbmarket.mobile.notify.PriceNotifications
@@ -52,7 +56,7 @@ private val Currencies = listOf(
 )
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(updates: UpdateViewModel = viewModel()) {
     val base by Prefs.baseCurrency.collectAsStateWithLifecycle()
     val home by Prefs.homeMarket.collectAsStateWithLifecycle()
     var pickCurrency by remember { mutableStateOf(false) }
@@ -110,6 +114,13 @@ fun SettingsScreen() {
                 modifier = Modifier.padding(horizontal = 8.dp),
             ) { Text("Cek harga sekarang") }
         }
+        val updateState by updates.state.collectAsStateWithLifecycle()
+        ListItem(
+            headlineContent = { Text("Cek pembaruan") },
+            supportingContent = { Text("Versi ${BuildConfig.VERSION_NAME} · dari GitHub") },
+            trailingContent = { if (updateState is UpdateState.Checking) CircularProgressIndicator(Modifier.size(24.dp)) },
+            modifier = Modifier.clickable { updates.check(manual = true) },
+        )
         Text(
             "Harga dari katalog publik Microsoft Store. Kurs dari open.er-api.com (diperbarui harian), " +
                 "jadi hasil konversi adalah perkiraan. Pembelian lintas region dapat melanggar ketentuan Microsoft.",
