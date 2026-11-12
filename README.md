@@ -2,7 +2,7 @@
 
 Aplikasi Android (Kotlin + Jetpack Compose) untuk membandingkan harga game Xbox di 44 region Microsoft Store.
 
-Fitur: daftar diskon per region (scroll tanpa batas; filter platform/genre di server, diskon minimal, harga maks, jenis, sembunyikan Game Pass; urut diskon/harga/terbaru), cari game, harga per region dikonversi ke satu mata uang dan diurutkan dari termurah, badge diskon dan tanggal berakhirnya, daftar pantauan (lokal) dengan notifikasi turun harga (WorkManager, tiap 6 jam, region utama), pemindai region termurah untuk 60 diskon teratas, pengaturan mata uang dan region utama.
+Fitur: daftar diskon per region (scroll tanpa batas; filter platform/genre di server, diskon minimal, harga maks, jenis, sembunyikan Game Pass; urut diskon/harga termurah/termahal/terbaru), cari game, harga per region dikonversi ke satu mata uang dan diurutkan dari termurah, badge diskon dan tanggal berakhirnya, daftar pantauan dengan harga region utama, diskon, dan region termurah; notifikasi turun harga (tanpa login: WorkManager lokal tiap 6 jam; dengan login Google: push FCM dari server), pemindai region termurah untuk 60 diskon teratas, pengaturan mata uang dan region utama.
 
 ## Sumber data
 
@@ -13,6 +13,23 @@ Fitur: daftar diskon per region (scroll tanpa batas; filter platform/genre di se
 - Kurs: `https://open.er-api.com/v6/latest/USD` (gratis, tanpa key, cache 6 jam).
 
 Xbox Bargains juga memakai backend privat `api.xbbargains.app` (`{region}/deals`, `{region}/{pid}/price-history`, `/currency/{c}/rates`). Backend itu tidak kita pakai.
+
+## Firebase (login Google, sinkron pantauan, push)
+
+Opsional: tanpa `app/google-services.json` aplikasi tetap bisa dibangun dan menu akun disembunyikan.
+
+1. Buat project Firebase, tambahkan app Android `com.xbmarket.mobile`, tambahkan SHA-1 debug/release, unduh `google-services.json` ke `app/`.
+2. Aktifkan Authentication → Google, Cloud Firestore, dan Cloud Messaging (FCM API v1).
+3. Deploy rules: `firebase deploy --only firestore:rules` (pakai `firestore.rules`).
+4. Push turun harga: buat service account (Project settings → Service accounts → Generate key), simpan isinya sebagai secret
+   GitHub `FIREBASE_SERVICE_ACCOUNT`, lalu set variable repo `PRICE_ALERTS_ENABLED=true`. Workflow
+   `.github/workflows/price-alerts.yml` menjalankan `tools/price_alerts.py` tiap 6 jam (salin dari
+   `tools/price-alerts.workflow.yml`; token push butuh scope `workflow`).
+5. Pengumuman manual: `GOOGLE_APPLICATION_CREDENTIALS=service-account.json python3 tools/send_push.py --title ... --body ...`
+   (semua perangkat lewat topik `all`, atau `--email` untuk satu akun).
+
+Data Firestore: `users/{uid}` (homeMarket, baseCurrency, priceAlerts), `users/{uid}/watchlist/{productId}`
+(title, image, addedAt; lastPrice/lastMarket ditulis server), `users/{uid}/tokens/{fcmToken}`.
 
 ## Build
 

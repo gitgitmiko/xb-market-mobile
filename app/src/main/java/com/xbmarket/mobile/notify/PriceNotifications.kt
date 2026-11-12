@@ -19,6 +19,7 @@ import com.xbmarket.mobile.ui.formatMoney
 
 object PriceNotifications {
     private const val CHANNEL = "price_drops"
+    private const val CHANNEL_NEWS = "news"
     const val EXTRA_GAME_ID = "gameId"
     const val EXTRA_GAME_TITLE = "gameTitle"
     const val EXTRA_GAME_IMAGE = "gameImage"
@@ -29,22 +30,27 @@ object PriceNotifications {
 
     /** Satu notifikasi per game; mengetuknya membuka halaman game itu. */
     fun notifyDrop(context: Context, game: GameSummary, now: RegionPrice, before: Double) {
-        if (!canNotify(context)) return
-        ensureChannel(context)
-        val open = PendingIntent.getActivity(
-            context,
-            game.id.hashCode(),
-            Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                .putExtra(EXTRA_GAME_ID, game.id)
-                .putExtra(EXTRA_GAME_TITLE, game.title)
-                .putExtra(EXTRA_GAME_IMAGE, game.image),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
         val title = if (now.discountPercent > 0) "${game.title} diskon ${now.discountPercent}%" else "${game.title} turun harga"
         val text = "${now.region.flag} ${formatMoney(now.price, now.currency)} (sebelumnya ${formatMoney(before, now.currency)})" +
             (now.saleEnds?.let { " · s.d. ${com.xbmarket.mobile.ui.formatDate(it)}" } ?: "")
-        val notification = NotificationCompat.Builder(context, CHANNEL)
+        show(context, CHANNEL, game.id.hashCode(), title, text, game)
+    }
+
+    /** Pengumuman dari developer lewat push; [game] opsional untuk membuka halaman game. */
+    fun notifyAnnouncement(context: Context, title: String, text: String, game: GameSummary?) {
+        show(context, CHANNEL_NEWS, (game?.id ?: title).hashCode(), title, text, game)
+    }
+
+    private fun show(context: Context, channel: String, id: Int, title: String, text: String, game: GameSummary?) {
+        if (!canNotify(context)) return
+        ensureChannel(context)
+        val intent = Intent(context, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        game?.let {
+            intent.putExtra(EXTRA_GAME_ID, it.id).putExtra(EXTRA_GAME_TITLE, it.title).putExtra(EXTRA_GAME_IMAGE, it.image)
+        }
+        val open = PendingIntent.getActivity(context, id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_price)
             .setContentTitle(title)
             .setContentText(text)
@@ -54,16 +60,21 @@ object PriceNotifications {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .build()
         @Suppress("MissingPermission") // dicek lewat canNotify()
-        NotificationManagerCompat.from(context).notify(game.id.hashCode(), notification)
+        NotificationManagerCompat.from(context).notify(id, notification)
     }
 
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < 26) return
         val manager = context.getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(CHANNEL) != null) return
+        if (manager.getNotificationChannel(CHANNEL_NEWS) != null) return
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "Turun harga", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Pemberitahuan saat game di daftar pantauan turun harga di region utama"
+            },
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_NEWS, "Info XB Market", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Pengumuman dan promo dari developer"
             },
         )
     }

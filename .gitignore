@@ -10,3 +10,6 @@ local.properties
 *.log
 *.xapk
 keystore.properties
+
+# Firebase
+service-account*.json

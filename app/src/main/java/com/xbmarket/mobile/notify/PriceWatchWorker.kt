@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.xbmarket.mobile.data.CloudSync
 import com.xbmarket.mobile.data.Prefs
 import com.xbmarket.mobile.data.Regions
 import com.xbmarket.mobile.data.XboxCatalog
@@ -24,6 +25,8 @@ class PriceWatchWorker(context: Context, params: WorkerParameters) : CoroutineWo
     override suspend fun doWork(): Result {
         Prefs.init(applicationContext)
         if (!Prefs.priceAlerts.value) return Result.success()
+        // Saat login, server yang mengecek harga dan mengirim push; jangan kirim notifikasi ganda.
+        if (CloudSync.serverAlerts) return Result.success()
         val watchlist = Prefs.watchlist.value
         val region = Regions.byMarket(Prefs.homeMarket.value) ?: return Result.success()
         if (watchlist.isEmpty()) return Result.success()

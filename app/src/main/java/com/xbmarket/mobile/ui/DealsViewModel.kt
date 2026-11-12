@@ -43,6 +43,7 @@ data class DealsState(
             return when (f.sort) {
                 DealFilters.Sort.Discount -> list
                 DealFilters.Sort.PriceAsc -> list.sortedBy { convert?.invoke(it.price, it.currency) ?: it.price }
+                DealFilters.Sort.PriceDesc -> list.sortedByDescending { convert?.invoke(it.price, it.currency) ?: it.price }
                 DealFilters.Sort.Newest -> list.sortedByDescending { it.releaseDate.orEmpty() }
             }
         }

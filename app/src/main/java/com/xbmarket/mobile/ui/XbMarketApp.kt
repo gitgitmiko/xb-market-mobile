@@ -43,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -51,6 +53,7 @@ import coil.compose.AsyncImage
 import com.xbmarket.mobile.data.GameSummary
 import com.xbmarket.mobile.data.Prefs
 import com.xbmarket.mobile.data.RegionPrice
+import com.xbmarket.mobile.data.Regions
 
 private enum class Tab(val label: String) { Deals("Diskon"), Search("Cari"), Watchlist("Pantauan"), Settings("Pengaturan") }
 
@@ -152,7 +155,7 @@ private fun SearchScreen(onOpen: (GameSummary) -> Unit, vm: SearchViewModel = vi
             state.error != null -> Centered { Text(state.error!!, color = MaterialTheme.colorScheme.error) }
             state.query.isBlank() -> Centered {
                 Text(
-                    "Cari game untuk membandingkan harganya di ${com.xbmarket.mobile.data.Regions.all.size} region Microsoft Store.",
+                    "Cari game untuk membandingkan harganya di ${Regions.all.size} region Microsoft Store.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(32.dp),
                 )
@@ -170,9 +173,10 @@ private fun SearchScreen(onOpen: (GameSummary) -> Unit, vm: SearchViewModel = vi
 private fun WatchlistScreen(onOpen: (GameSummary) -> Unit, vm: WatchlistViewModel = viewModel()) {
     val watchlist by Prefs.watchlist.collectAsStateWithLifecycle()
     val homeMarket by Prefs.homeMarket.collectAsStateWithLifecycle()
+    val base by Prefs.baseCurrency.collectAsStateWithLifecycle()
     val prices by vm.prices.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
-    LaunchedEffect(watchlist.size, homeMarket) { vm.refresh() }
+    LaunchedEffect(watchlist.size, homeMarket, base) { vm.refresh() }
 
     if (watchlist.isEmpty()) {
         Centered {
@@ -184,17 +188,91 @@ private fun WatchlistScreen(onOpen: (GameSummary) -> Unit, vm: WatchlistViewMode
         }
         return
     }
+    val home = Regions.byMarket(homeMarket)
     PullToRefreshBox(isRefreshing = refreshing, onRefresh = vm::refresh, modifier = Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 8.dp)) {
             items(watchlist, key = { it.id }) { game ->
-                GameRow(game, price = prices[game.id], onClick = { onOpen(game) })
+                WatchRow(game, prices[game.id], homeName = home?.name ?: homeMarket, base = base, loading = refreshing, onClick = { onOpen(game) })
             }
         }
     }
 }
 
 @Composable
-fun GameRow(game: GameSummary, price: RegionPrice? = null, onClick: () -> Unit) {
+private fun WatchRow(game: GameSummary, price: WatchPrice?, homeName: String, base: String, loading: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AsyncImage(
+            model = game.image,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.size(72.dp).clip(RoundedCornerShape(8.dp)),
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(game.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
+            val home = price?.home
+            when {
+                home != null -> {
+                    PriceLine(home)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (home.currency != base) {
+                            home.converted?.let { Text("≈ ${formatMoney(it, base)}", style = MaterialTheme.typography.labelSmall) }
+                        }
+                        home.saleEnds?.let {
+                            Text("s.d. ${formatDate(it)}", style = MaterialTheme.typography.labelSmall, color = SaleColor)
+                        }
+                    }
+                }
+                price != null -> Text(
+                    "Tidak dijual di $homeName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                loading -> Text("Memuat harga…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            // Region termurah, bila berbeda dari region utama.
+            val cheapest = price?.cheapest
+            if (cheapest != null && cheapest.region.market != home?.region?.market) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Termurah ${cheapest.region.flag} ${formatMoney(cheapest.price, cheapest.currency)}" +
+                            (cheapest.converted?.takeIf { cheapest.currency != base }?.let { " ≈ ${formatMoney(it, base)}" } ?: ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (cheapest.discountPercent > 0) DiscountBadge(cheapest.discountPercent)
+                }
+            }
+        }
+    }
+}
+
+/** Harga sekarang, badge diskon, dan harga normal dicoret bila sedang diskon. */
+@Composable
+private fun PriceLine(price: RegionPrice) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (price.discountPercent > 0) DiscountBadge(price.discountPercent)
+        Text(
+            if (price.price == 0.0) "Gratis" else formatMoney(price.price, price.currency),
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        if (price.discountPercent > 0) {
+            Text(
+                formatMoney(price.msrp, price.currency),
+                style = MaterialTheme.typography.bodySmall,
+                textDecoration = TextDecoration.LineThrough,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+fun GameRow(game: GameSummary, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -206,19 +284,7 @@ fun GameRow(game: GameSummary, price: RegionPrice? = null, onClick: () -> Unit) 
             modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
         )
         Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(game.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
-            if (price != null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "${price.region.flag} ${formatMoney(price.price, price.currency)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                    if (price.discountPercent > 0) DiscountBadge(price.discountPercent)
-                }
-            }
-        }
+        Text(game.title, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
     }
 }
 

@@ -4,6 +4,7 @@ package com.xbmarket.mobile.data
 data class Region(val market: String, val name: String, val flag: String)
 
 object Regions {
+    /** Terurut menurut nama agar mudah dicari di pemilih region. */
     val all: List<Region> = listOf(
         Region("ID", "Indonesia", "🇮🇩"),
         Region("US", "Amerika Serikat", "🇺🇸"),
@@ -49,7 +50,7 @@ object Regions {
         Region("IT", "Italia", "🇮🇹"),
         Region("ES", "Spanyol", "🇪🇸"),
         Region("NL", "Belanda", "🇳🇱"),
-    )
+    ).sortedBy { it.name }
 
     fun byMarket(market: String): Region? = all.firstOrNull { it.market == market }
 }

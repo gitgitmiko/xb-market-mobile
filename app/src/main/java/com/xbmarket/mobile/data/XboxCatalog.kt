@@ -137,6 +137,20 @@ class XboxCatalog(private val client: OkHttpClient = Http.client) {
             }.toMap()
         }
 
+    /** Judul dan box art beberapa game sekaligus (untuk melengkapi item pantauan lama tanpa gambar). */
+    suspend fun summaries(productIds: List<String>, market: String = "US"): List<GameSummary> =
+        withContext(Dispatchers.IO) {
+            productIds.chunked(20).flatMap { chunk ->
+                products(chunk, market).map { p ->
+                    val loc = p.localized.firstOrNull()
+                    val image = listOf("BoxArt", "Poster", "FeaturePromotionalSquareArt").firstNotNullOfOrNull { purpose ->
+                        loc?.images?.firstOrNull { it.purpose == purpose }?.uri?.let(::absoluteUrl)
+                    }
+                    GameSummary(p.productId, loc?.title.orEmpty(), image)
+                }
+            }
+        }
+
     private fun priceIn(productId: String, region: Region): RegionPrice? =
         products(listOf(productId), region.market).firstOrNull()?.let { purchasePrice(it, region) }
 

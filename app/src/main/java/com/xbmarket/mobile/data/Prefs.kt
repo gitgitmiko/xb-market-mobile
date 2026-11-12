@@ -71,8 +71,39 @@ object Prefs {
 
     fun toggleWatch(game: GameSummary) {
         val list = _watchlist.value
-        _watchlist.value = if (list.any { it.id == game.id }) list.filterNot { it.id == game.id } else listOf(game) + list
+        val added = list.none { it.id == game.id }
+        _watchlist.value = if (added) listOf(game) + list else list.filterNot { it.id == game.id }
         prefs().edit().putString("watchlist", json.encodeToString(_watchlist.value)).apply()
+        CloudSync.onWatchToggled(game, added)
+    }
+
+    /** Ganti seluruh pantauan dengan daftar dari akun (lihat [CloudSync]). */
+    fun replaceWatchlist(list: List<GameSummary>) {
+        if (list == _watchlist.value) return
+        _watchlist.value = list
+        prefs().edit().putString("watchlist", json.encodeToString(list)).apply()
+    }
+
+    /** Akun yang pantauan lokalnya sudah digabung ke Firestore. */
+    fun syncedUid(): String? = prefs().getString("syncedUid", null)
+
+    fun setSyncedUid(uid: String?) {
+        prefs().edit().putString("syncedUid", uid).apply()
+    }
+
+    /** Lengkapi gambar/judul item pantauan yang kosong tanpa mengubah urutannya. */
+    fun fillWatchDetails(details: List<GameSummary>) {
+        val byId = details.associateBy { it.id }
+        val updated = _watchlist.value.map { game ->
+            val d = byId[game.id] ?: return@map game
+            game.copy(title = game.title.ifBlank { d.title }, image = game.image ?: d.image)
+        }
+        val changed = updated.filter { it !in _watchlist.value }
+        if (changed.isEmpty()) return
+        _watchlist.value = updated
+        prefs().edit().putString("watchlist", json.encodeToString(updated)).apply()
+        // Perbarui juga di akun (merge, tanpa menghapus harga terakhir dari server).
+        changed.forEach(CloudSync::updateDetails)
     }
 
     private fun prefs() = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)

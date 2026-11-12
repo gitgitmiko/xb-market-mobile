@@ -19,7 +19,9 @@ data class DealFilters(
 
     /** Hanya [Discount] yang sesuai urutan server; lainnya mengurutkan item yang sudah dimuat. */
     @Serializable
-    enum class Sort(val label: String) { Discount("Diskon terbesar"), PriceAsc("Harga termurah"), Newest("Terbaru") }
+    enum class Sort(val label: String) {
+        Discount("Diskon terbesar"), PriceAsc("Harga termurah"), PriceDesc("Harga termahal"), Newest("Terbaru"),
+    }
 
     /** Jumlah filter aktif selain urutan, untuk badge di tombol Filter. */
     val activeCount: Int
